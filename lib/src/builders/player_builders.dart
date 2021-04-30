@@ -8,7 +8,9 @@ enum _PlayingBuilderType {
   playSpeed,
   forwardRewindSpeed,
   current,
+  currentPlaylist,
   loopMode,
+  shuffle,
   isBuffering,
   realtimePlayingInfos,
   playerState,
@@ -18,6 +20,8 @@ typedef PlayingWidgetBuilder = Widget Function(
     BuildContext context, bool isPlaying);
 typedef LoopModeWidgetBuilder = Widget Function(
     BuildContext context, LoopMode loopMode);
+typedef ShuffleWidgetBuilder = Widget Function(
+    BuildContext context, bool loopMode);
 typedef VolumeWidgetBuilder = Widget Function(
     BuildContext context, double volume);
 typedef PlaySpeedWidgetBuilder = Widget Function(
@@ -28,6 +32,8 @@ typedef PositionWidgetBuilder = Widget Function(
     BuildContext context, Duration position);
 typedef CurrentWidgetBuilder = Widget Function(
     BuildContext context, Playing playing);
+typedef CurrentPlaylistWidgetBuilder = Widget Function(
+    BuildContext context, Playlist playlist);
 typedef IsBufferingWidgetBuilder = Widget Function(
     BuildContext context, bool isBuffering);
 typedef RealtimeWidgetBuilder = Widget Function(
@@ -56,6 +62,12 @@ class PlayerBuilder extends StatefulWidget {
       {Key key, @required this.player, @required LoopModeWidgetBuilder builder})
       : this.builder = builder,
         this.builderType = _PlayingBuilderType.loopMode,
+        super(key: key);
+
+  const PlayerBuilder.shuffle(
+      {Key key, @required this.player, @required ShuffleWidgetBuilder builder})
+      : this.builder = builder,
+        this.builderType = _PlayingBuilderType.shuffle,
         super(key: key);
 
   const PlayerBuilder.realtimePlayingInfos(
@@ -96,6 +108,12 @@ class PlayerBuilder extends StatefulWidget {
         this.builderType = _PlayingBuilderType.current,
         super(key: key);
 
+  const PlayerBuilder.currentPlaylist(
+      {Key key, @required this.player, @required CurrentPlaylistWidgetBuilder builder})
+      : this.builder = builder,
+        this.builderType = _PlayingBuilderType.currentPlaylist,
+        super(key: key);
+
   const PlayerBuilder.playerState(
       {Key key, @required this.player, @required PlayerStateBuilder builder})
       : this.builder = builder,
@@ -132,6 +150,15 @@ class _PlayerBuilderState extends State<PlayerBuilder> {
         return StreamBuilder(
           stream: widget.player.loopMode,
           initialData: LoopMode.none,
+          builder: (context, snap) {
+            return this.widget.builder(context, snap.data);
+          },
+        );
+        break;
+      case _PlayingBuilderType.shuffle:
+        return StreamBuilder(
+          stream: widget.player.isShuffling,
+          initialData: false,
           builder: (context, snap) {
             return this.widget.builder(context, snap.data);
           },
@@ -176,6 +203,15 @@ class _PlayerBuilderState extends State<PlayerBuilder> {
       case _PlayingBuilderType.current:
         return StreamBuilder(
           stream: widget.player.current,
+          initialData: null,
+          builder: (context, snap) {
+            return this.widget.builder(context, snap.data);
+          },
+        );
+        break;
+      case _PlayingBuilderType.currentPlaylist:
+        return StreamBuilder(
+          stream: widget.player.currentPlaylist,
           initialData: null,
           builder: (context, snap) {
             return this.widget.builder(context, snap.data);

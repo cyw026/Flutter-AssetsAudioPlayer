@@ -69,6 +69,7 @@ class PlayerEditor {
     }
     assetsAudioPlayer._updatePlaylistIndexes();
     if (assetsAudioPlayer._playlist.playlistIndex == index) {
+      assetsAudioPlayer._playlist.moveTo(index);
       assetsAudioPlayer._openPlaylistCurrent();
     }
   }
@@ -252,7 +253,7 @@ class AssetsAudioPlayer {
       return ReadingPlaylist(
         //immutable copy
         audios: _playlist.playlist.audios,
-        currentIndex: _playlist.playlistIndex,
+        currentIndex: _playlist.currentIndex(),
       );
     }
   }
@@ -323,6 +324,11 @@ class AssetsAudioPlayer {
   ///     })
   ///
   ValueStream<bool> get playlistFinished => _playlistFinished.stream;
+
+
+  final BehaviorSubject<Playlist> _currentPlaylist = BehaviorSubject();
+
+  ValueStream<Playlist> get currentPlaylist => _currentPlaylist.stream;
 
   /// Called when the current playlist song has finished (mutable)
   /// Using a playlist, the `finished` stram will be called only if the complete playlist finished
@@ -436,8 +442,19 @@ class AssetsAudioPlayer {
     }
   }
 
+  LoopMode getLoopMode(int index) {
+    if (index == 0) {
+      return LoopMode.none;
+    } else if (index == 1) {
+      return LoopMode.single;
+    } else {
+      return LoopMode.playlist;
+    }
+  }
+
   /// assign the shuffling state : true -> shuffling, false -> not shuffling
   set shuffle(value) {
+    _playlist.isShuffling = value;
     _shuffle.value = value;
   }
 
@@ -481,6 +498,7 @@ class AssetsAudioPlayer {
     _isPlaying.close();
     _volume.close();
     _playlistFinished.close();
+    _currentPlaylist.close();
     _current.close();
     _playlistAudioFinished.close();
     _audioSessionId.close();
@@ -571,7 +589,7 @@ class AssetsAudioPlayer {
                 hasNext: _playlist.hasNext(),
                 playlist: ReadingPlaylist(
                     audios: _playlist.playlist.audios,
-                    currentIndex: _playlist.playlistIndex,
+                    currentIndex: _playlist.currentIndex(),
                     nextIndex: _playlist.nextIndex(),
                     previousIndex: _playlist.previousIndex()),
               );
@@ -780,6 +798,7 @@ class AssetsAudioPlayer {
         notificationSettings: _playlist.notificationSettings,
         autoStart: autoStart,
         loopMode: _playlist.loopMode,
+        isShuffling: _playlist.isShuffling,
         headPhoneStrategy: _playlist.headPhoneStrategy,
         audioFocusStrategy: _playlist.audioFocusStrategy,
         seek: seek,
@@ -832,7 +851,7 @@ class AssetsAudioPlayer {
         await _openPlaylistCurrent();
 
         return true;
-      } else if (loopMode.value == LoopMode.playlist) {
+      } else if (loopMode.value == LoopMode.playlist || loopMode.value == LoopMode.none) {
         //last element
         final curr = this._current.value;
         if (curr != null) {
@@ -843,6 +862,8 @@ class AssetsAudioPlayer {
             playlist: this._current.value.playlist,
           ));
         }
+
+        _updatePlaylistIndexes();
 
         _playlist.returnToFirst();
         await _openPlaylistCurrent();
@@ -911,7 +932,8 @@ class AssetsAudioPlayer {
   }
 
   void _updatePlaylistIndexes() {
-    _playlist.clearPlayerAudio(shuffle);
+    _playlist.clearPlayerAudio();
+    _currentPlaylist.add(_playlist.playlist);
   }
 
   /// Converts a number to duration
@@ -969,6 +991,7 @@ class AssetsAudioPlayer {
     Duration seek,
     double playSpeed,
     LoopMode loopMode,
+    bool isShuffling,
     HeadPhoneStrategy headPhoneStrategy,
     AudioFocusStrategy audioFocusStrategy,
     NotificationSettings notificationSettings,
@@ -1027,6 +1050,8 @@ class AssetsAudioPlayer {
 
         await setLoopMode(loopMode);
 
+        shuffle = isShuffling;
+
         _stopped = false;
         _playlistFinished.value = false;
       } catch (e) {
@@ -1084,6 +1109,7 @@ class AssetsAudioPlayer {
     Duration seek,
     double playSpeed,
     LoopMode loopMode,
+    bool isShuffling,
     NotificationSettings notificationSettings,
     PlayInBackground playInBackground = _DEFAULT_PLAY_IN_BACKGROUND,
     HeadPhoneStrategy headPhoneStrategy = HeadPhoneStrategy.none,
@@ -1098,6 +1124,7 @@ class AssetsAudioPlayer {
       showNotification: showNotification,
       playSpeed: playSpeed,
       loopMode: loopMode,
+      isShuffling: isShuffling,
       audioFocusStrategy: audioFocusStrategy ?? defaultFocusStrategy,
       notificationSettings: notificationSettings,
       playInBackground: playInBackground,
@@ -1137,7 +1164,7 @@ class AssetsAudioPlayer {
     Duration seek,
     double playSpeed,
     NotificationSettings notificationSettings,
-    LoopMode loopMode = LoopMode.none,
+    LoopMode loopMode = LoopMode.none, bool isShuffling = false,
     PlayInBackground playInBackground = _DEFAULT_PLAY_IN_BACKGROUND,
     HeadPhoneStrategy headPhoneStrategy = HeadPhoneStrategy.none,
     AudioFocusStrategy audioFocusStrategy,
@@ -1173,6 +1200,7 @@ class AssetsAudioPlayer {
           showNotification: showNotification,
           seek: seek,
           loopMode: loopMode,
+          isShuffling: isShuffling,
           playSpeed: playSpeed,
           headPhoneStrategy: headPhoneStrategy,
           audioFocusStrategy: focusStrategy,
@@ -1426,6 +1454,7 @@ class _CurrentPlaylist {
   final bool showNotification;
   LoopMode loopMode;
   final double playSpeed;
+  bool isShuffling;
   final NotificationSettings notificationSettings;
   final AudioFocusStrategy audioFocusStrategy;
   final PlayInBackground playInBackground;
@@ -1433,30 +1462,38 @@ class _CurrentPlaylist {
 
   int playlistIndex = 0;
 
+  int currentIndex() {
+    // int index = indexList.indexWhere((element) => playlistIndex == element);
+    if (playlistIndex < indexList.length) {
+      return indexList[playlistIndex];
+    }
+    return 0;
+  }
+
   int nextIndex() {
-    int index = indexList.indexWhere((element) => playlistIndex == element);
-    if (index + 1 == indexList.length) {
+    // int index = indexList.indexWhere((element) => playlistIndex == element);
+    if (playlistIndex + 1 == indexList.length) {
       return indexList.first;
     } else {
-      return indexList[index + 1];
+      return indexList[playlistIndex + 1];
     }
   }
 
   int previousIndex() {
-    int index = indexList.indexWhere((element) => playlistIndex == element);
-    if (index == 0) {
+    // int index = indexList.indexWhere((element) => playlistIndex == element);
+    if (playlistIndex == 0) {
       return indexList.last;
     } else {
-      return indexList[index - 1];
+      return indexList[playlistIndex - 1];
     }
   }
 
   selectNext() {
-    int index = indexList.indexWhere((element) => playlistIndex == element);
+    // int index = indexList.indexWhere((element) => playlistIndex == element);
     if (hasNext()) {
-      index = index + 1;
+      playlistIndex = playlistIndex + 1;
     }
-    playlistIndex = index;
+    // playlistIndex = index;
   }
 
   List<int> indexList = [];
@@ -1467,9 +1504,9 @@ class _CurrentPlaylist {
     }
   }
 
-  clearPlayerAudio(bool shuffle) {
+  clearPlayerAudio() {
     indexList.clear();
-    if (shuffle) {
+    if (isShuffling) {
       shuffleAudios();
     } else {
       sortAudios();
@@ -1481,6 +1518,7 @@ class _CurrentPlaylist {
       int index = _shuffleNumbers();
       indexList.add(index);
     }
+    print("indexList: ${indexList.toString()}");
   }
 
   int _shuffleNumbers() {
@@ -1515,8 +1553,8 @@ class _CurrentPlaylist {
   }
 
   bool hasNext() {
-    int index = indexList.indexWhere((element) => playlistIndex == element);
-    return index + 1 < indexList.length;
+    // int index = indexList.indexWhere((element) => playlistIndex == element);
+    return playlistIndex + 1 < indexList.length;
   }
 
   bool get isSingleAudio => playlist.audios.length == 1;
@@ -1530,25 +1568,29 @@ class _CurrentPlaylist {
     this.notificationSettings,
     this.playInBackground,
     this.loopMode,
+    this.isShuffling,
     this.headPhoneStrategy,
     this.audioFocusStrategy,
   });
 
   void returnToFirst() {
-    playlistIndex = playlist.startIndex;
+    playlistIndex = 0;
   }
 
   bool hasPrev() {
-    int index = indexList.indexWhere((element) => playlistIndex == element);
-    return index > 0;
+    // int index = indexList.indexWhere((element) => playlistIndex == element);
+    return playlistIndex > 0;
   }
 
   void selectPrev() {
-    int index = indexList.indexWhere((element) => playlistIndex == element);
-    index = index - 1;
-    playlistIndex = index;
-    if (playlistIndex < 0) {
-      playlistIndex = 0;
+    // int index = indexList.indexWhere((element) => playlistIndex == element);
+    // index = index - 1;
+    // playlistIndex = index;
+    // if (playlistIndex < 0) {
+    //   playlistIndex = 0;
+    // }
+    if(playlistIndex > 0) {
+      playlistIndex--;
     }
   }
 }
